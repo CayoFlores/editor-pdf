@@ -1,20 +1,17 @@
 <script setup lang="ts">
-import { FONT_FAMILIES, useEditorStore, type FontFamily, type TextAlign } from '@/stores/editor'
+import { FONT_FAMILIES, useEditorStore, type TextElementData } from '@/stores/editor'
+import { useHistoryStore } from '@/stores/history'
+import { UpdateElementCommand } from '@/commands/elementCommands'
 
 const store = useEditorStore()
+const history = useHistoryStore()
 
-function update(patch: Partial<{
-  fontFamily: FontFamily
-  fontSize: number
-  color: string
-  bold: boolean
-  italic: boolean
-  underline: boolean
-  align: TextAlign
-}>) {
+function commit<K extends keyof TextElementData>(key: K, value: TextElementData[K]) {
   const el = store.selectedTextElement
   if (!el) return
-  store.updateElement(el.id, patch)
+  const before = { [key]: el[key] } as Partial<TextElementData>
+  const after = { [key]: value } as Partial<TextElementData>
+  history.execute(new UpdateElementCommand(store.currentPage, el.id, 'text', before, after))
 }
 </script>
 
@@ -26,7 +23,7 @@ function update(patch: Partial<{
       Fuente
       <select
         :value="store.selectedTextElement.fontFamily"
-        @change="update({ fontFamily: ($event.target as HTMLSelectElement).value as FontFamily })"
+        @change="commit('fontFamily', ($event.target as HTMLSelectElement).value as TextElementData['fontFamily'])"
       >
         <option v-for="f in FONT_FAMILIES" :key="f" :value="f">{{ f }}</option>
       </select>
@@ -39,7 +36,7 @@ function update(patch: Partial<{
         min="6"
         max="200"
         :value="store.selectedTextElement.fontSize"
-        @input="update({ fontSize: Number(($event.target as HTMLInputElement).value) })"
+        @change="commit('fontSize', Number(($event.target as HTMLInputElement).value))"
       />
     </label>
 
@@ -48,7 +45,7 @@ function update(patch: Partial<{
       <input
         type="color"
         :value="store.selectedTextElement.color"
-        @input="update({ color: ($event.target as HTMLInputElement).value })"
+        @change="commit('color', ($event.target as HTMLInputElement).value)"
       />
     </label>
 
@@ -56,21 +53,21 @@ function update(patch: Partial<{
       <button
         type="button"
         :class="{ active: store.selectedTextElement.bold }"
-        @click="update({ bold: !store.selectedTextElement.bold })"
+        @click="commit('bold', !store.selectedTextElement.bold)"
       >
         B
       </button>
       <button
         type="button"
         :class="{ active: store.selectedTextElement.italic }"
-        @click="update({ italic: !store.selectedTextElement.italic })"
+        @click="commit('italic', !store.selectedTextElement.italic)"
       >
         I
       </button>
       <button
         type="button"
         :class="{ active: store.selectedTextElement.underline }"
-        @click="update({ underline: !store.selectedTextElement.underline })"
+        @click="commit('underline', !store.selectedTextElement.underline)"
       >
         U
       </button>
@@ -80,21 +77,21 @@ function update(patch: Partial<{
       <button
         type="button"
         :class="{ active: store.selectedTextElement.align === 'left' }"
-        @click="update({ align: 'left' })"
+        @click="commit('align', 'left')"
       >
         Izq
       </button>
       <button
         type="button"
         :class="{ active: store.selectedTextElement.align === 'center' }"
-        @click="update({ align: 'center' })"
+        @click="commit('align', 'center')"
       >
         Centro
       </button>
       <button
         type="button"
         :class="{ active: store.selectedTextElement.align === 'right' }"
-        @click="update({ align: 'right' })"
+        @click="commit('align', 'right')"
       >
         Der
       </button>

@@ -23,10 +23,15 @@ function clampToBounds(rect: Rect, bounds: Bounds): Rect {
   return { x, y, width, height }
 }
 
+function rectsEqual(a: Rect, b: Rect): boolean {
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+}
+
 export function useDragResize(
   getRect: () => Rect,
   setRect: (rect: Rect) => void,
   getBounds: () => Bounds,
+  onCommit?: (before: Rect, after: Rect) => void,
 ) {
   function startDrag(event: PointerEvent) {
     const startRect = getRect()
@@ -41,6 +46,10 @@ export function useDragResize(
       if (!dragging) {
         if (Math.abs(dx) < DRAG_THRESHOLD && Math.abs(dy) < DRAG_THRESHOLD) return
         dragging = true
+        // A real drag (not a click) shouldn't leave focus stuck inside a
+        // contenteditable child — that would make the global undo/redo
+        // shortcut think text is still being edited and back off.
+        ;(document.activeElement as HTMLElement | null)?.blur()
       }
 
       moveEvent.preventDefault()
@@ -55,6 +64,11 @@ export function useDragResize(
     function onUp() {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+
+      if (dragging) {
+        const finalRect = getRect()
+        if (!rectsEqual(startRect, finalRect)) onCommit?.(startRect, finalRect)
+      }
     }
 
     window.addEventListener('pointermove', onMove)
@@ -96,6 +110,9 @@ export function useDragResize(
     function onUp() {
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+
+      const finalRect = getRect()
+      if (!rectsEqual(startRect, finalRect)) onCommit?.(startRect, finalRect)
     }
 
     window.addEventListener('pointermove', onMove)

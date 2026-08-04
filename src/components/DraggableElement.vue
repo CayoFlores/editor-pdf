@@ -10,6 +10,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:rect': [rect: Rect]
+  'commit:rect': [before: Rect, after: Rect]
   select: []
   delete: []
 }>()
@@ -18,6 +19,7 @@ const { startDrag, startResize } = useDragResize(
   () => props.rect,
   (rect) => emit('update:rect', rect),
   () => props.bounds,
+  (before, after) => emit('commit:rect', before, after),
 )
 
 const style = computed(() => ({

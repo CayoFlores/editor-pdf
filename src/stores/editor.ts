@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, shallowRef } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
+import { useHistoryStore } from '@/stores/history'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   'pdfjs-dist/build/pdf.worker.min.mjs',
@@ -49,6 +50,39 @@ function fileToDataUrl(file: File): Promise<string> {
   })
 }
 
+export function createTextElement(): TextElementData {
+  return {
+    id: crypto.randomUUID(),
+    type: 'text',
+    x: 40,
+    y: 40,
+    width: 220,
+    height: 60,
+    content: 'Texto',
+    fontFamily: 'Helvetica',
+    fontSize: 18,
+    color: '#000000',
+    bold: false,
+    italic: false,
+    underline: false,
+    align: 'left',
+  }
+}
+
+export async function createImageElement(file: File): Promise<ImageElementData> {
+  const src = await fileToDataUrl(file)
+  return {
+    id: crypto.randomUUID(),
+    type: 'image',
+    x: 40,
+    y: 40,
+    width: 160,
+    height: 160,
+    src,
+    mimeType: file.type,
+  }
+}
+
 export const useEditorStore = defineStore('editor', () => {
   const pdfDocument = shallowRef<PDFDocumentProxy | null>(null)
   const originalBytes = shallowRef<ArrayBuffer | null>(null)
@@ -89,6 +123,7 @@ export const useEditorStore = defineStore('editor', () => {
       currentPage.value = 1
       elementsByPage.value = {}
       selectedElementId.value = null
+      useHistoryStore().clear()
     } catch (err) {
       error.value = err instanceof Error ? err.message : 'No se pudo cargar el PDF'
       pdfDocument.value = null
@@ -112,59 +147,39 @@ export const useEditorStore = defineStore('editor', () => {
     goToPage(currentPage.value - 1)
   }
 
-  function addElement(element: PageElement) {
-    const page = currentPage.value
+  /**
+   * Low-level mutation primitives. These take an explicit page number
+   * (instead of assuming `currentPage`) so that undo/redo commands can
+   * target the page an edit actually happened on, even after the user
+   * has navigated elsewhere.
+   */
+  function insertElement(page: number, element: PageElement, index?: number) {
     if (!elementsByPage.value[page]) {
       elementsByPage.value[page] = []
     }
-    elementsByPage.value[page].push(element)
-    selectedElementId.value = element.id
+    const list = elementsByPage.value[page]
+    if (index === undefined || index >= list.length) {
+      list.push(element)
+    } else {
+      list.splice(index, 0, element)
+    }
   }
 
-  function addTextElement() {
-    addElement({
-      id: crypto.randomUUID(),
-      type: 'text',
-      x: 40,
-      y: 40,
-      width: 220,
-      height: 60,
-      content: 'Texto',
-      fontFamily: 'Helvetica',
-      fontSize: 18,
-      color: '#000000',
-      bold: false,
-      italic: false,
-      underline: false,
-      align: 'left',
-    })
+  function deleteElement(page: number, id: string) {
+    const list = elementsByPage.value[page]
+    if (!list) return
+    elementsByPage.value[page] = list.filter((item) => item.id !== id)
+    if (selectedElementId.value === id) selectedElementId.value = null
   }
 
-  async function addImageElement(file: File) {
-    const src = await fileToDataUrl(file)
-    addElement({
-      id: crypto.randomUUID(),
-      type: 'image',
-      x: 40,
-      y: 40,
-      width: 160,
-      height: 160,
-      src,
-      mimeType: file.type,
-    })
+  function elementIndex(page: number, id: string): number {
+    return elementsByPage.value[page]?.findIndex((item) => item.id === id) ?? -1
   }
 
-  function updateElement(id: string, patch: Partial<PageElement>) {
-    const list = elementsByPage.value[currentPage.value]
+  function patchElement(page: number, id: string, patch: Partial<PageElement>) {
+    const list = elementsByPage.value[page]
     const el = list?.find((item) => item.id === id)
     if (el) Object.assign(el, patch)
-  }
-
-  function removeElement(id: string) {
-    const list = elementsByPage.value[currentPage.value]
-    if (!list) return
-    elementsByPage.value[currentPage.value] = list.filter((item) => item.id !== id)
-    if (selectedElementId.value === id) selectedElementId.value = null
   }
 
   function selectElement(id: string | null) {
@@ -189,10 +204,10 @@ export const useEditorStore = defineStore('editor', () => {
     selectedElementId,
     selectedElement,
     selectedTextElement,
-    addTextElement,
-    addImageElement,
-    updateElement,
-    removeElement,
+    insertElement,
+    deleteElement,
+    elementIndex,
+    patchElement,
     selectElement,
   }
 })

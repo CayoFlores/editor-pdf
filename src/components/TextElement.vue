@@ -2,12 +2,16 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import type { TextElementData } from '@/stores/editor'
 import { useEditorStore } from '@/stores/editor'
+import { useHistoryStore } from '@/stores/history'
+import { UpdateElementCommand } from '@/commands/elementCommands'
 
 const props = defineProps<{ element: TextElementData }>()
 const store = useEditorStore()
+const history = useHistoryStore()
 
 const contentRef = ref<HTMLElement | null>(null)
 const isEditable = computed(() => store.selectedElementId === props.element.id)
+let contentBeforeEdit = props.element.content
 
 const style = computed(() => ({
   fontFamily: props.element.fontFamily,
@@ -30,10 +34,39 @@ watch(
   () => props.element.id,
   () => setDomContent(props.element.content),
 )
+watch(
+  () => props.element.content,
+  (content) => {
+    // Skip while the user is actively typing here — the DOM is already the
+    // source of truth for that keystroke. Undo/redo and other external
+    // changes land while this element isn't focused, so sync those in.
+    if (document.activeElement !== contentRef.value) {
+      setDomContent(content)
+    }
+  },
+)
 
 function onInput(event: Event) {
   const target = event.target as HTMLElement
-  store.updateElement(props.element.id, { content: target.innerText })
+  store.patchElement(store.currentPage, props.element.id, { content: target.innerText })
+}
+
+function onFocus() {
+  contentBeforeEdit = props.element.content
+}
+
+function onBlur() {
+  const after = props.element.content
+  if (after === contentBeforeEdit) return
+  history.execute(
+    new UpdateElementCommand(
+      store.currentPage,
+      props.element.id,
+      'text',
+      { content: contentBeforeEdit },
+      { content: after },
+    ),
+  )
 }
 </script>
 
@@ -44,6 +77,8 @@ function onInput(event: Event) {
     :style="style"
     :contenteditable="isEditable"
     @input="onInput"
+    @focus="onFocus"
+    @blur="onBlur"
   />
 </template>
 

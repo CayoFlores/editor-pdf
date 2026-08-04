@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useEditorStore } from '@/stores/editor'
+import { createImageElement, createTextElement, useEditorStore } from '@/stores/editor'
+import { useHistoryStore } from '@/stores/history'
+import { AddElementCommand } from '@/commands/elementCommands'
 import { buildExportedPdf, downloadPdf } from '@/utils/pdfExport'
+import HistoryModal from '@/components/HistoryModal.vue'
 
 const store = useEditorStore()
+const history = useHistoryStore()
 const isExporting = ref(false)
+const isHistoryOpen = ref(false)
 
 function onFileChange(event: Event) {
   const input = event.target as HTMLInputElement
@@ -15,11 +20,16 @@ function onFileChange(event: Event) {
   input.value = ''
 }
 
-function onImageChange(event: Event) {
+function onAddText() {
+  history.execute(new AddElementCommand(store.currentPage, createTextElement()))
+}
+
+async function onImageChange(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (file) {
-    store.addImageElement(file)
+    const element = await createImageElement(file)
+    history.execute(new AddElementCommand(store.currentPage, element))
   }
   input.value = ''
 }
@@ -77,7 +87,38 @@ async function onDownload() {
 
       <span class="divider" />
 
-      <button type="button" class="btn" @click="store.addTextElement">+ Texto</button>
+      <button
+        type="button"
+        class="btn btn-icon"
+        :disabled="!history.canUndo"
+        @click="history.undo"
+        aria-label="Deshacer"
+        title="Deshacer (Ctrl+Z)"
+      >
+        ↶
+      </button>
+      <button
+        type="button"
+        class="btn btn-icon"
+        :disabled="!history.canRedo"
+        @click="history.redo"
+        aria-label="Rehacer"
+        title="Rehacer (Ctrl+Shift+Z)"
+      >
+        ↷
+      </button>
+      <button
+        type="button"
+        class="btn"
+        @click="isHistoryOpen = true"
+        title="Ver historial de cambios"
+      >
+        Historial
+      </button>
+
+      <span class="divider" />
+
+      <button type="button" class="btn" @click="onAddText">+ Texto</button>
 
       <label class="btn">
         + Imagen
@@ -91,6 +132,8 @@ async function onDownload() {
       </button>
     </template>
   </header>
+
+  <HistoryModal :open="isHistoryOpen" @close="isHistoryOpen = false" />
 </template>
 
 <style scoped>

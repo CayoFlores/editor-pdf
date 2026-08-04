@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { ref, watch, onBeforeUnmount, onMounted } from 'vue'
 import { useEditorStore, type PageElement } from '@/stores/editor'
+import { useHistoryStore } from '@/stores/history'
+import { DeleteElementCommand, UpdateElementCommand } from '@/commands/elementCommands'
 import DraggableElement from '@/components/DraggableElement.vue'
 import TextElement from '@/components/TextElement.vue'
 import ImageElement from '@/components/ImageElement.vue'
 import type { Rect } from '@/composables/useDragResize'
 
 const store = useEditorStore()
+const history = useHistoryStore()
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const pageWidth = ref(0)
 const pageHeight = ref(0)
@@ -55,7 +58,19 @@ function elementRect(element: PageElement): Rect {
 }
 
 function onRectUpdate(id: string, rect: Rect) {
-  store.updateElement(id, rect)
+  store.patchElement(store.currentPage, id, rect)
+}
+
+function onRectCommit(id: string, before: Rect, after: Rect) {
+  const element = store.currentPageElements.find((el) => el.id === id)
+  if (!element) return
+  history.execute(new UpdateElementCommand(store.currentPage, id, element.type, before, after))
+}
+
+function deleteElementWithHistory(id: string) {
+  const element = store.currentPageElements.find((el) => el.id === id)
+  if (!element) return
+  history.execute(new DeleteElementCommand(store.currentPage, element))
 }
 
 function onOverlayPointerDown(event: PointerEvent) {
@@ -64,15 +79,34 @@ function onOverlayPointerDown(event: PointerEvent) {
   }
 }
 
+function isEditingField(): boolean {
+  const active = document.activeElement as HTMLElement | null
+  return Boolean(active?.isContentEditable || active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA')
+}
+
 function onKeyDown(event: KeyboardEvent) {
+  const key = event.key.toLowerCase()
+  const withModifier = event.ctrlKey || event.metaKey
+
+  if (withModifier && key === 'z' && !isEditingField()) {
+    event.preventDefault()
+    if (event.shiftKey) history.redo()
+    else history.undo()
+    return
+  }
+
+  if (withModifier && key === 'y' && !isEditingField()) {
+    event.preventDefault()
+    history.redo()
+    return
+  }
+
   if (event.key !== 'Delete' && event.key !== 'Backspace') return
   if (!store.selectedElementId) return
-
-  const active = document.activeElement as HTMLElement | null
-  if (active?.isContentEditable) return
+  if (isEditingField()) return
 
   event.preventDefault()
-  store.removeElement(store.selectedElementId)
+  deleteElementWithHistory(store.selectedElementId)
 }
 
 onMounted(() => window.addEventListener('keydown', onKeyDown))
@@ -97,8 +131,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeyDown))
           :bounds="{ width: pageWidth, height: pageHeight }"
           :selected="store.selectedElementId === el.id"
           @update:rect="(rect) => onRectUpdate(el.id, rect)"
+          @commit:rect="(before, after) => onRectCommit(el.id, before, after)"
           @select="store.selectElement(el.id)"
-          @delete="store.removeElement(el.id)"
+          @delete="deleteElementWithHistory(el.id)"
         >
           <TextElement v-if="el.type === 'text'" :element="el" />
           <ImageElement v-else :element="el" />
